@@ -4,37 +4,64 @@
 -}
 module Sexpr where
 
-import           Text.Parsec
+import           Text.Parsec 
 import qualified Text.Parsec.Token as P
 import           Text.Parsec.Language(emptyDef)
-import           Data.List (foldl', intersperse)
+import           Data.List (intercalate)
 
 type Identifier = String
 
 -- | a datatype for S-expressions
 data Sexpr
-  = IntLit Integer
-  | StrLit String
+  = Integer Integer
+  | String String
+  | Bool Bool
   | Atom Identifier
   | List [Sexpr]
   deriving Show
 
--- | concrete parser type
+
+-- | Pretty-printer
+-- not a very efficient solution
+showSexpr :: Sexpr -> String
+showSexpr (Integer n) = show n
+showSexpr (String s) = show s
+showSexpr (Atom x) = x
+showSexpr (Bool b)
+  = case b of
+      True -> "#t"
+      False -> "#f"
+showSexpr (List list) 
+  = "(" ++ intercalate " " (map showSexpr list) ++ ")"
+
+
+
+-- | Parser 
 type Parser = Parsec String () 
 
--- | a parser for S-expressions
-parserSexpr :: Parser Sexpr
-parserSexpr =
-  IntLit <$> integer
-  <|>
-  Atom <$> identifier
-  <|>
-  StrLit <$> stringLiteral
-  <|>
-  List <$> parens (many parserSexpr)
+-- | S-expressions
+parseSexpr :: Parser Sexpr
+parseSexpr
+  = parseNumber
+  <|> parseString
+  <|> parseAtomOrBool
+  <|> parseList
 
+parseList = List <$> parens (many parseSexpr)
 
--- | lexer stuff
+parseNumber = Integer <$> integer
+
+parseString = String <$> stringLiteral
+
+parseAtomOrBool = do
+  atom <- identifier 
+  return $ case atom of
+    "#f" -> Bool False
+    "#t" -> Bool True
+    _ -> Atom atom
+  
+
+-- | lexer language definitions 
 schemeDef
   = emptyDef { P.identStart = letter <|> symbol
              , P.identLetter = alphaNum <|> symbol
@@ -52,19 +79,11 @@ stringLiteral  = P.stringLiteral lexer
 parens         = P.parens lexer
 whiteSpace      = P.whiteSpace lexer
 
+
 integer :: Parser Integer
-integer = (try (do { char '-'; negate <$> natural }) <|> natural) <?> "integer"
+integer = try $ do
+  c <- option '+' (char '-' <|> char '+')
+  n <- natural
+  return (if c=='-' then negate n else n)
+  
 
-
--- | pretty-printing
-showsSexpr :: Sexpr -> ShowS 
-showsSexpr (IntLit n) = shows n
-showsSexpr (StrLit s) = shows s
-showsSexpr (Atom x) = (x++)
-showsSexpr (List xs) 
-  = ('(':) .
-    foldl' (.) id (intersperse (' ':) $ map showsSexpr xs) .
-    (')':)
-
-showSexpr :: Sexpr -> String
-showSexpr e = showsSexpr e ""
